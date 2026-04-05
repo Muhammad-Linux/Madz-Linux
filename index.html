@@ -3,20 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Quantum Hand Responsive - Madz</title>
+    <title>Quantum Hand Final - Madz System</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     
     <style>
-        body { background-color: #000; margin: 0; overflow: hidden; color: #00ffff; font-family: 'Courier New', monospace; }
+        body { background-color: #000; margin: 0; overflow: hidden; color: #00ffff; font-family: 'Courier New', monospace; user-select: none; }
+        
+        /* Canvas Utama (WebGL untuk Partikel) */
         #particle_canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        
+        /* Video Kecil (Mirror Mode) */
         #input_video { position: fixed; bottom: 10px; right: 10px; width: 120px; border: 1px solid rgba(0, 255, 255, 0.4); border-radius: 4px; transform: scaleX(-1); opacity: 0.3; z-index: 10; }
+
+        /* UI Overlay */
         #ui { position: absolute; top: 20px; left: 20px; padding: 10px; border-left: 2px solid #00ffff; background: rgba(0, 0, 0, 0.6); z-index: 20; text-transform: uppercase; font-size: 11px; pointer-events: none; }
     </style>
 </head>
 <body>
 
-    <div id="ui">System: Quantum Responsive<br>Status: <span id="st">READY</span></div>
+    <div id="ui">
+        System: Quantum Particle Scanner<br>
+        Status: <span id="st">READY...</span>
+    </div>
+
     <video id="input_video" autoplay playsinline></video>
     <canvas id="particle_canvas"></canvas>
 
@@ -26,13 +36,21 @@
         attribute float a_acc;
         attribute float a_size;
         uniform vec2 u_resolution;
+        uniform float u_time;
         varying vec4 v_color;
+
         void main() {
+            // Animasi Easing (Halus)
             vec2 position = a_position + (a_target - a_position) * a_acc;
+            
+            // Konversi koordinat piksel ke normalized device coordinates
             vec2 zeroToOne = position / u_resolution;
             vec2 clipSpace = (zeroToOne * 2.0) - 1.0;
+            
             gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
             gl_PointSize = a_size;
+            
+            // Warna Default Cyan, agak transparan
             v_color = vec4(0.0, 1.0, 1.0, 0.6); 
         }
     </script>
@@ -40,7 +58,9 @@
     <script id="fs" type="x-shader/x-fragment">
         precision mediump float;
         varying vec4 v_color;
+
         void main() {
+            // Efek partikel bulat bercahaya (Anti-aliasing)
             float r = length(gl_PointCoord - vec2(0.5));
             if (r > 0.5) discard;
             gl_FragColor = v_color * (1.0 - smoothstep(0.3, 0.5, r));
@@ -50,60 +70,17 @@
     <script>
         const video = document.getElementById('input_video');
         const canvas = document.getElementById('particle_canvas');
-        const gl = canvas.getContext('webgl');
+        const gl = canvas.getContext('webgl', {alpha: false});
         const st = document.getElementById('st');
 
         let ww, wh;
         let textPointsLove = [], textPointsMamad = [];
-        const PARTICLE_COUNT = 5000;
-        const particles = [];
-        const positions = new Float32Array(PARTICLE_COUNT * 2);
-        const targets = new Float32Array(PARTICLE_COUNT * 2);
-        const accs = new Float32Array(PARTICLE_COUNT);
-        const sizes = new Float32Array(PARTICLE_COUNT);
+        const PARTICLE_COUNT = 3000; // Ribuan titik!
         let mode = 'SCATTER';
         let currentTargetPoints = [];
 
-        // Fungsi Hitung Ulang Titik Teks saat Layar Berubah
-        function updateLayout() {
-            ww = window.innerWidth;
-            wh = window.innerHeight;
-            canvas.width = ww;
-            canvas.height = wh;
-            gl.viewport(0, 0, ww, wh);
-
-            // Re-generate titik teks agar tetap di tengah
-            textPointsLove = createPointsFromText("I LOVE YOU", Math.min(ww * 0.12, 80));
-            textPointsMamad = createPointsFromText("HAI AKU MADZ", Math.min(ww * 0.1, 60));
-            
-            // Update origin partikel agar menyebar ke seluruh layar baru
-            particles.forEach(p => {
-                p.originX = Math.random() * ww;
-                p.originY = Math.random() * wh;
-            });
-        }
-
-        function createPointsFromText(text, fontSize) {
-            const points = [];
-            const tCanvas = document.createElement('canvas');
-            const tCtx = tCanvas.getContext('2d');
-            tCanvas.width = ww; tCanvas.height = wh;
-            tCtx.fillStyle = 'white';
-            tCtx.font = `bold ${fontSize}px Courier New`;
-            tCtx.textAlign = 'center';
-            tCtx.textBaseline = 'middle';
-            tCtx.fillText(text, ww/2, wh/2);
-            const data = tCtx.getImageData(0,0,ww,wh).data;
-            const step = Math.max(3, Math.floor(ww/150));
-            for(let y=0; y<wh; y+=step) {
-                for(let x=0; x<ww; x+=step) {
-                    if(data[(y*ww+x)*4+3] > 128) points.push({x, y});
-                }
-            }
-            return points;
-        }
-
-        // WebGL Init
+        // WEBGL SETUP
+        if (!gl) { st.innerText = "ERR: WebGL not supported"; }
         const vs = gl.createShader(gl.VERTEX_SHADER);
         gl.shaderSource(vs, document.getElementById('vs').text);
         gl.compileShader(vs);
@@ -114,75 +91,143 @@
         gl.attachShader(prog, vs); gl.attachShader(prog, fs);
         gl.linkProgram(prog); gl.useProgram(prog);
 
-        const aPos = gl.getAttribLocation(prog, "a_position");
-        const aTar = gl.getAttribLocation(prog, "a_target");
-        const aAcc = gl.getAttribLocation(prog, "a_acc");
-        const aSize = gl.getAttribLocation(prog, "a_size");
-        const uRes = gl.getUniformLocation(prog, "u_resolution");
+        const aPosLoc = gl.getAttribLocation(prog, "a_position");
+        const aTargetLoc = gl.getAttribLocation(prog, "a_target");
+        const aAccLoc = gl.getAttribLocation(prog, "a_acc");
+        const aSizeLoc = gl.getAttribLocation(prog, "a_size");
+        const uResLoc = gl.getUniformLocation(prog, "u_resolution");
 
-        for(let i=0; i<PARTICLE_COUNT; i++) {
-            particles.push({originX:0, originY:0});
-            accs[i] = 0.05 + Math.random()*0.05;
-            sizes[i] = 1.5 + Math.random()*2;
+        // Buffers data
+        const positions = new Float32Array(PARTICLE_COUNT * 2);
+        const targets = new Float32Array(PARTICLE_COUNT * 2);
+        const accs = new Float32Array(PARTICLE_COUNT);
+        const sizes = new Float32Array(PARTICLE_COUNT);
+        const particles = [];
+
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            particles.push({originX: 0, originY: 0});
+            accs[i] = 0.05 + Math.random() * 0.05;
+            sizes[i] = 1.5 + Math.random() * 2.0;
         }
 
-        const bPos = gl.createBuffer(); const bTar = gl.createBuffer();
-        const bAcc = gl.createBuffer(); const bSize = gl.createBuffer();
+        const bPos = gl.createBuffer();
+        const bTar = gl.createBuffer();
+        const bAcc = gl.createBuffer();
+        const bSize = gl.createBuffer();
 
+        // === LOGIKA PENGGAMBARAN TEKS (Dioptimalkan biar TEBAL!) ===
+        function createPointsFromText(text, fontSize) {
+            const points = [];
+            const tCanvas = document.createElement('canvas');
+            const tCtx = tCanvas.getContext('2d');
+            tCanvas.width = ww; tCanvas.height = wh;
+            
+            tCtx.fillStyle = 'white';
+            // 1. Ganti Font ke BOLD agar hurufnya gemuk
+            tCtx.font = `bold ${fontSize}px Courier New, monospace`; 
+            tCtx.textAlign = 'center';
+            tCtx.textBaseline = 'middle';
+            tCtx.fillText(text, ww / 2, wh / 2);
+
+            const data = tCtx.getImageData(0, 0, ww, wh).data;
+            // 2. Kunci Ketebalan: SET 'step' YANG KECIL (2 atau 3)
+            const step = 2; 
+
+            for (let y = 0; y < wh; y += step) {
+                for (let x = 0; x < ww; x += step) {
+                    if (data[(y * ww + x) * 4 + 3] > 128) {
+                        points.push({x: x + (Math.random() - 0.5) * 1.5, y: y + (Math.random() - 0.5) * 1.5});
+                    }
+                }
+            }
+            return points;
+        }
+
+        // Fungsi Hitung Ulang Titik Teks (Auto-Responsive)
+        function updateLayout() {
+            ww = window.innerWidth; wh = window.innerHeight;
+            canvas.width = ww; canvas.height = wh;
+            gl.viewport(0, 0, ww, wh);
+
+            // Re-generate titik teks agar tebal & tetap di tengah
+            textPointsLove = createPointsFromText("I LOVE YOU", Math.min(ww * 0.12, 80));
+            textPointsMamad = createPointsFromText("HAI AKU MADZ", Math.min(ww * 0.1, 60));
+            
+            // Update origin partikel agar menyebar ke seluruh layar baru
+            particles.forEach(p => {
+                p.originX = Math.random() * ww;
+                p.originY = Math.random() * wh;
+            });
+        }
+
+        // MAIN RENDER LOOP
         function render() {
-            gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT);
-            gl.uniform2f(uRes, ww, wh);
+            gl.clearColor(0, 0, 0, 1);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.uniform2f(uResLoc, ww, wh);
 
             particles.forEach((p, i) => {
                 let tx, ty;
-                if(mode !== 'SCATTER' && currentTargetPoints.length > 0) {
+                if (mode !== 'SCATTER' && currentTargetPoints.length > 0) {
                     const t = currentTargetPoints[i % currentTargetPoints.length];
                     tx = t.x; ty = t.y;
                 } else {
-                    tx = p.originX + Math.sin(Date.now()*0.001+i)*50;
-                    ty = p.originY + Math.cos(Date.now()*0.001+i)*50;
+                    tx = p.originX + Math.sin(Date.now() * 0.001 + i) * 50;
+                    ty = p.originY + Math.cos(Date.now() * 0.001 + i) * 50;
                 }
-                targets[i*2] = tx; targets[i*2+1] = ty;
-                positions[i*2] += (targets[i*2] - positions[i*2]) * accs[i];
-                positions[i*2+1] += (targets[i*2+1] - positions[i*2+1]) * accs[i];
+                targets[i * 2] = tx; targets[i * 2 + 1] = ty;
+                
+                // Animasi Easing ( Halus )
+                positions[i * 2] += (targets[i * 2] - positions[i * 2]) * accs[i];
+                positions[i * 2 + 1] += (targets[i * 2 + 1] - positions[i * 2 + 1]) * accs[i];
             });
 
             gl.bindBuffer(gl.ARRAY_BUFFER, bPos); gl.bufferData(gl.ARRAY_BUFFER, positions, gl.DYNAMIC_DRAW);
-            gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
-            gl.bindBuffer(gl.ARRAY_BUFFER, bTar); gl.bufferData(gl.ARRAY_BUFFER, targets, gl.DYNAMIC_DRAW);
-            gl.enableVertexAttribArray(aTar); gl.vertexAttribPointer(aTar, 2, gl.FLOAT, false, 0, 0);
-            gl.bindBuffer(gl.ARRAY_BUFFER, bAcc); gl.bufferData(gl.ARRAY_BUFFER, accs, gl.STATIC_DRAW);
-            gl.enableVertexAttribArray(aAcc); gl.vertexAttribPointer(aAcc, 1, gl.FLOAT, false, 0, 0);
-            gl.bindBuffer(gl.ARRAY_BUFFER, bSize); gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.STATIC_DRAW);
-            gl.enableVertexAttribArray(aSize); gl.vertexAttribPointer(aSize, 1, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(aPosLoc); gl.vertexAttribPointer(aPosLoc, 2, gl.FLOAT, false, 0, 0);
 
+            gl.bindBuffer(gl.ARRAY_BUFFER, bTar); gl.bufferData(gl.ARRAY_BUFFER, targets, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(aTargetLoc); gl.vertexAttribPointer(aTargetLoc, 2, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, bAcc); gl.bufferData(gl.ARRAY_BUFFER, accs, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(aAccLoc); gl.vertexAttribPointer(aAccLoc, 1, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, bSize); gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.STATIC_DRAW);
+            gl.enableVertexAttribArray(aSizeLoc); gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
+
+            // Efek Blending Glow
             gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
             gl.drawArrays(gl.POINTS, 0, PARTICLE_COUNT);
+            gl.disable(gl.BLEND);
+
             requestAnimationFrame(render);
         }
 
         window.addEventListener('resize', updateLayout);
-        updateLayout();
-        render();
+        updateLayout(); render();
 
-        // Mediapipe
+        // MEDIAPIPE CALLBACK (Deteksi Jari)
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
         hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6});
         hands.onResults(res => {
-            if(res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
-                let f = 0; const tips = [8,12,16,20];
+            if (res.multiHandLandmarks && res.multiHandLandmarks.length > 0) {
+                let f = 0; const tips = [8, 12, 16, 20];
                 const lm = res.multiHandLandmarks[0];
-                tips.forEach(id => { if(lm[id].y < lm[id-2].y) f++; });
-                if(lm[4].x > lm[3].x) f++;
+                tips.forEach(id => { if (lm[id].y < lm[id - 2].y) f++; });
+                if (lm[4].x > lm[3].x) f++; // Jempol sederhana
 
-                if(f === 2) { mode = 'LOVE'; currentTargetPoints = textPointsLove; }
-                else if(f === 5) { mode = 'MADZ'; currentTargetPoints = textPointsMamad; }
+                if (f === 2) { mode = 'LOVE'; currentTargetPoints = textPointsLove; }
+                else if (f === 5) { mode = 'MADZ'; currentTargetPoints = textPointsMamad; }
                 else mode = 'SCATTER';
                 st.innerText = "DETECTED: " + mode;
             } else { mode = 'SCATTER'; st.innerText = "SCANNING..."; }
         });
 
-        new Camera(video, { onFrame: async () => { await hands.send({image: video}); }, width: 640, height: 480 }).start();
+        const cam = new Camera(video, {
+            onFrame: async () => { await hands.send({image: video}); },
+            width: 640, height: 480
+        });
+        cam.start();
     </script>
 </body>
-</html>
+    </html>
+    
