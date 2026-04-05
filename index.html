@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Quantum Hand Final - Madz System</title>
+    <title>Quantum Hand - SMP TARUNA - Madz System V6</title>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     
@@ -23,7 +23,7 @@
 <body>
 
     <div id="ui">
-        System: Quantum Particle Scanner<br>
+        System: SMP TARUNA - Madz V6<br>
         Status: <span id="st">READY...</span>
     </div>
 
@@ -35,6 +35,7 @@
         attribute vec2 a_target;
         attribute float a_acc;
         attribute float a_size;
+        attribute vec4 a_color; // Tambahkan atribut warna
         uniform vec2 u_resolution;
         uniform float u_time;
         varying vec4 v_color;
@@ -50,8 +51,8 @@
             gl_Position = vec4(clipSpace * vec2(1, -1), 0, 1);
             gl_PointSize = a_size;
             
-            // Warna Default Cyan, agak transparan
-            v_color = vec4(0.0, 1.0, 1.0, 0.6); 
+            // Gunakan warna dari atribut
+            v_color = a_color; 
         }
     </script>
     
@@ -73,11 +74,12 @@
         const gl = canvas.getContext('webgl', {alpha: false});
         const st = document.getElementById('st');
 
-        let ww, wh;
-        let textPointsLove = [], textPointsMamad = [];
+        let ww, wh, mode = 'SCATTER';
+        let textPointsLove, textPointsMamad, textPointsSchool, symbolHollowHeart, symbolHollowStar;
+        let lastDateString = "";
         const PARTICLE_COUNT = 3000; // Ribuan titik!
-        let mode = 'SCATTER';
         let currentTargetPoints = [];
+        let currentSymbolColor = [0.0, 1.0, 1.0, 0.6]; // Default Cyan
 
         // WEBGL SETUP
         if (!gl) { st.innerText = "ERR: WebGL not supported"; }
@@ -95,6 +97,7 @@
         const aTargetLoc = gl.getAttribLocation(prog, "a_target");
         const aAccLoc = gl.getAttribLocation(prog, "a_acc");
         const aSizeLoc = gl.getAttribLocation(prog, "a_size");
+        const aColorLoc = gl.getAttribLocation(prog, "a_color"); // Lokasi atribut warna
         const uResLoc = gl.getUniformLocation(prog, "u_resolution");
 
         // Buffers data
@@ -102,6 +105,7 @@
         const targets = new Float32Array(PARTICLE_COUNT * 2);
         const accs = new Float32Array(PARTICLE_COUNT);
         const sizes = new Float32Array(PARTICLE_COUNT);
+        const colors = new Float32Array(PARTICLE_COUNT * 4); // Array warna
         const particles = [];
 
         for (let i = 0; i < PARTICLE_COUNT; i++) {
@@ -114,6 +118,7 @@
         const bTar = gl.createBuffer();
         const bAcc = gl.createBuffer();
         const bSize = gl.createBuffer();
+        const bColor = gl.createBuffer(); // Buffer warna
 
         // === LOGIKA PENGGAMBARAN TEKS (Dioptimalkan biar TEBAL!) ===
         function createPointsFromText(text, fontSize) {
@@ -123,15 +128,13 @@
             tCanvas.width = ww; tCanvas.height = wh;
             
             tCtx.fillStyle = 'white';
-            // 1. Ganti Font ke BOLD agar hurufnya gemuk
             tCtx.font = `bold ${fontSize}px Courier New, monospace`; 
             tCtx.textAlign = 'center';
             tCtx.textBaseline = 'middle';
             tCtx.fillText(text, ww / 2, wh / 2);
 
             const data = tCtx.getImageData(0, 0, ww, wh).data;
-            // 2. Kunci Ketebalan: SET 'step' YANG KECIL (2 atau 3)
-            const step = 2; 
+            const step = 2; // Kunci Ketebalan
 
             for (let y = 0; y < wh; y += step) {
                 for (let x = 0; x < ww; x += step) {
@@ -143,17 +146,89 @@
             return points;
         }
 
+        // === JURUS SIMBOL GEDE & BOLONG MADZ V6 ===
+        function createHollowSymbolPoints(scale, isHeart = false) {
+            const points = [];
+            const tempCanvas = document.createElement('canvas');
+            const tempCtx = tempCanvas.getContext('2d');
+            tempCanvas.width = ww; tempCanvas.height = wh;
+
+            tempCtx.lineWidth = 15; // <--- TEBAL GARIS
+            tempCtx.strokeStyle = 'white';
+            tempCtx.fillStyle = 'white';
+
+            const cx = ww / 2, cy = wh / 2;
+
+            tempCtx.beginPath();
+            if(isHeart) {
+                // Rumus Hati Gede
+                for (let a = 0; a < Math.PI * 2; a += 0.01) {
+                    const x = cx + scale * (16 * Math.pow(Math.sin(a), 3));
+                    const y = cy - scale * (13 * Math.cos(a) - 5 * Math.cos(2*a) - 2*Math.cos(3*a) - Math.cos(4*a));
+                    if (a === 0) tempCtx.moveTo(x, y); else tempCtx.lineTo(x, y);
+                }
+            } else {
+                // Rumus Bintang Gede
+                const spikes = 5, outerRadius = scale * 15, innerRadius = scale * 7;
+                let a = Math.PI / 2;
+                tempCtx.moveTo(cx, cy - outerRadius);
+                for(let i=0; i<spikes; i++) {
+                    let x = cx + Math.cos(a) * outerRadius;
+                    let y = cy + Math.sin(a) * outerRadius;
+                    tempCtx.lineTo(x, y);
+                    a += (Math.PI / spikes);
+                    x = cx + Math.cos(a) * innerRadius;
+                    y = cy + Math.sin(a) * innerRadius;
+                    tempCtx.lineTo(x, y);
+                    a += (Math.PI / spikes);
+                }
+            }
+            tempCtx.closePath();
+            
+            // Gambar Outline
+            tempCtx.stroke(); 
+
+            // Sampling piksel
+            const imageData = tempCtx.getImageData(0, 0, ww, wh).data;
+            for (let y = 0; y < wh; y += 3) {
+                for (let x = 0; x < ww; x += 3) {
+                    if (imageData[(y * ww + x) * 4 + 3] > 128) {
+                        points.push({x: x + (Math.random() - 0.5) * 1, y: y + (Math.random() - 0.5) * 1});
+                    }
+                }
+            }
+            return points;
+        }
+
+        // Fungsi Hitung Tanggal *Fixed & Stabil*
+        function generateDateText() {
+            const days = ["MINGGU", "SENIN", "SELASA", "RABU", "KAMIS", "JUMAT", "SABTU"];
+            const now = new Date();
+            const dayName = days[now.getDay()];
+            const date = now.getDate();
+            const month = now.toLocaleString('id-ID', { month: 'LONG' }).toUpperCase();
+            const year = now.getFullYear();
+            const text = `${dayName}, ${date} ${month} ${year}`;
+            return createPointsFromText(text, Math.min(ww * 0.07, 45));
+        }
+
         // Fungsi Hitung Ulang Titik Teks (Auto-Responsive)
         function updateLayout() {
             ww = window.innerWidth; wh = window.innerHeight;
             canvas.width = ww; canvas.height = wh;
             gl.viewport(0, 0, ww, wh);
 
-            // Re-generate titik teks agar tebal & tetap di tengah
+            // Re-generate titik teks
             textPointsLove = createPointsFromText("I LOVE YOU", Math.min(ww * 0.12, 80));
             textPointsMamad = createPointsFromText("HAI AKU MADZ", Math.min(ww * 0.1, 60));
+            textPointsSchool = createPointsFromText("SMP TARUNA SAINS MUHAMMADIYAH", Math.min(ww * 0.06, 40));
             
-            // Update origin partikel agar menyebar ke seluruh layar baru
+            // Pre-sampling simbol GEDE & BOLONG
+            const scaleFactor = Math.min(ww / 150, wh / 150);
+            symbolHollowHeart = createHollowSymbolPoints(scaleFactor * 10, true); // Hati
+            symbolHollowStar = createHollowSymbolPoints(scaleFactor * 12, false); // Bintang
+
+            // Update origin partikel
             particles.forEach(p => {
                 p.originX = Math.random() * ww;
                 p.originY = Math.random() * wh;
@@ -171,13 +246,22 @@
                 if (mode !== 'SCATTER' && currentTargetPoints.length > 0) {
                     const t = currentTargetPoints[i % currentTargetPoints.length];
                     tx = t.x; ty = t.y;
+                    // Terapkan warna simbol
+                    colors[i * 4] = currentSymbolColor[0];
+                    colors[i * 4 + 1] = currentSymbolColor[1];
+                    colors[i * 4 + 2] = currentSymbolColor[2];
+                    colors[i * 4 + 3] = currentSymbolColor[3];
                 } else {
                     tx = p.originX + Math.sin(Date.now() * 0.001 + i) * 50;
                     ty = p.originY + Math.cos(Date.now() * 0.001 + i) * 50;
+                    // Terapkan warna pudar saat nyebar
+                    colors[i * 4] = 0.0;
+                    colors[i * 4 + 1] = 1.0;
+                    colors[i * 4 + 2] = 1.0;
+                    colors[i * 4 + 3] = 0.2;
                 }
                 targets[i * 2] = tx; targets[i * 2 + 1] = ty;
                 
-                // Animasi Easing ( Halus )
                 positions[i * 2] += (targets[i * 2] - positions[i * 2]) * accs[i];
                 positions[i * 2 + 1] += (targets[i * 2 + 1] - positions[i * 2 + 1]) * accs[i];
             });
@@ -194,7 +278,9 @@
             gl.bindBuffer(gl.ARRAY_BUFFER, bSize); gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.STATIC_DRAW);
             gl.enableVertexAttribArray(aSizeLoc); gl.vertexAttribPointer(aSizeLoc, 1, gl.FLOAT, false, 0, 0);
 
-            // Efek Blending Glow
+            gl.bindBuffer(gl.ARRAY_BUFFER, bColor); gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
+            gl.enableVertexAttribArray(aColorLoc); gl.vertexAttribPointer(aColorLoc, 4, gl.FLOAT, false, 0, 0);
+
             gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE);
             gl.drawArrays(gl.POINTS, 0, PARTICLE_COUNT);
             gl.disable(gl.BLEND);
@@ -205,7 +291,7 @@
         window.addEventListener('resize', updateLayout);
         updateLayout(); render();
 
-        // MEDIAPIPE CALLBACK (Deteksi Jari)
+        // MEDIAPIPE CALLBACK (Deteksi Gestur Fix V6)
         const hands = new Hands({locateFile: (f) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`});
         hands.setOptions({maxNumHands: 1, modelComplexity: 1, minDetectionConfidence: 0.6});
         hands.onResults(res => {
@@ -215,8 +301,29 @@
                 tips.forEach(id => { if (lm[id].y < lm[id - 2].y) f++; });
                 if (lm[4].x > lm[3].x) f++; // Jempol sederhana
 
-                if (f === 2) { mode = 'LOVE'; currentTargetPoints = textPointsLove; }
+                // Warna default Cyan
+                currentSymbolColor = [0.0, 1.0, 1.0, 0.6]; 
+
+                if (f === 1) { mode = 'SCHOOL'; currentTargetPoints = textPointsSchool; }
+                else if (f === 2) { mode = 'LOVE'; currentTargetPoints = textPointsLove; }
+                else if (f === 3) { 
+                    mode = 'DATE'; 
+                    // Teks dihitung sekali pas jari kedetect (Stabil V5)
+                    const d = new Date();
+                    const ds = d.toLocaleDateString('id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric'}).toUpperCase();
+                    if(ds !== lastDateString) { currentTargetPoints = createPointsFromText(ds, Math.min(ww*0.06, 35)); lastDateString = ds; }
+                }
+                else if (f === 4) { 
+                    mode = 'STAR'; // Gunakan Jurus Bintang Bolong Gede!
+                    currentTargetPoints = symbolHollowStar; 
+                    currentSymbolColor = [1.0, 1.0, 0.0, 0.6]; // Kuning Bintang
+                }
                 else if (f === 5) { mode = 'MADZ'; currentTargetPoints = textPointsMamad; }
+                else if (f === 0) { 
+                    mode = 'HEART'; // Hati Bolong Gede (V4)
+                    currentTargetPoints = symbolHollowHeart; 
+                    currentSymbolColor = [1.0, 0.0, 0.4, 0.6]; // Pink Hati
+                }
                 else mode = 'SCATTER';
                 st.innerText = "DETECTED: " + mode;
             } else { mode = 'SCATTER'; st.innerText = "SCANNING..."; }
@@ -229,5 +336,4 @@
         cam.start();
     </script>
 </body>
-    </html>
-    
+</html>
